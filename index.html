@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг ТСД</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="dashboard">
+    <h1>Статус терминалов сбора данных</h1>
+    <div id="tsd-list">загрузка данных из Firebase...</div>
+</div>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+    const firebaseConfig = {
+        apiKey: "AIzaSyCOpoWOygfpw0f9FJzWIEaqmhbUCS-RmEU",
+        authDomain: "city-tsd-control.firebaseapp.com",
+        databaseURL: "https://city-tsd-control-default-rtdb.europe-west1.firebasedatabase.app/",
+        projectId: "city-tsd-control",
+        storageBucket: "city-tsd-control.firebasestorage.app",
+        messagingSenderId: "1086724572042",
+        appId: "1:1086724572042:web:4a19851bcb25d45381be73"
+    }
+
+    console.log("1. Скрипт запущен, начинаем инициализацию...");
+
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    console.log("2. Firebase успешно инициализирован в коде!");
+
+    const terminalsRef = ref(database, 'terminals');
+
+    console.log("3. Запрос к ветке 'terminals' отправлен в облако, ждем ответ..."); // <-- ДОБАВИТЬ
+    
+    onValue(terminalsRef, (snapshot) => {
+        console.log("4. Ура! Облако Firebase прислало ответ!"); // <-- ДОБАВИТЬ
+        const data = snapshot.val();
+        const displayDiv = document.getElementById('tsd-list');
+
+
+            if (data) {
+                let tableHTML = `
+                    <table class="tsd-table">
+                        <thead>
+                            <tr>
+                                <th>Название ТСД</th>
+                                <th>Заряд батареи</th>
+                                <th>Статус</th>
+                            </tr>
+                        </thead>
+                    <tbody>
+                `;
+
+                for (let id in data) {
+                 const tsd = data[id];
+
+                    const batteryClass = tsd.battery < 20 ? 'battery-low' : 'battery-ok';
+
+                    const safeStatus = tsd.status ? tsd.status.trim().toLowerCase() : '';
+
+                    let statusIcon = '❓ Неизвестно';
+
+                    if (safeStatus === 'working') {
+                        statusIcon = '🟢 В работе';
+                    } else if (safeStatus === 'charging') {
+                        statusIcon = '🔌 На зарядке';
+                    } else {
+                        statusIcon = `⚠️ Ошибка: ${tsd.status}`;
+                    }
+
+                    tableHTML += `
+                      <tr>
+                            <td><strong>${id}</strong></td>
+                            <td><span class="battery-badge ${batteryClass}">${tsd.battery}%</span></td>
+                            <td>${statusIcon}</td>
+                        </tr>
+                  `;
+                }
+
+            tableHTML += `
+                        </tbody>
+                 </table>
+            `;
+            displayDiv.innerHTML = tableHTML;
+        
+        } else {
+            displayDiv.innerHTML = "В базе пока нет данных о терминалах.";
+        }
+    });
+</script>
+</body>
+</html>
