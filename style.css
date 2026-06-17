@@ -1,0 +1,72 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f0f2f5;
+    margin: 0;
+    padding: 40px 20px;
+    display: flex;
+    justify-content: center;
+}
+
+.dashboard {
+    background: white;
+    max-width: 800px;
+    width: 100%;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+}
+
+h1 {
+    color: #1a1a1a;
+    font-size: 24px;
+    margin-bottom: 25px;
+    border-bottom: 2px solid #f0f2f5;
+    padding-bottom: 15px;
+}
+
+/* Стили таблицы */
+.tsd-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.tsd-table th {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    padding: 12px 16px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.tsd-table td {
+    padding: 16px;
+    border-bottom: 1px solid #f0f2f5;
+    color: #333;
+}
+
+/* Индикаторы батареи */
+.battery-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.battery-ok {
+    background-color: #e2f0d9;
+    color: #385723;
+}
+
+.battery-low {
+    background-color: #fce4d6;
+    color: #c65911;
+    animation: blink 1.5s infinite; /* Сделаем так, чтобы разряженный ТСД моргал */
+}
+
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
