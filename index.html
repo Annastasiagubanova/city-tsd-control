@@ -146,7 +146,7 @@
     <div class="grid-container">
         <div class="menu-card" id="card-status-trigger">
             <div class="card-icon-wrapper">
-                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
             </div>
             <h2>Панель состояния ТСД</h2>
             <p>Контроль уровня заряда в реальном времени, статусы подключения к сети и оперативный журнал событий.</p>
@@ -241,7 +241,6 @@
     onAuthStateChanged(auth, (user) => {
         if (user) {
             authScreen.style.display = 'none';
-            // После входа сначала показываем Главное Меню
             mainMenu.style.display = 'flex';
             dashboard.style.display = 'none';
         } else {
@@ -251,19 +250,16 @@
         }
     });
 
-    // Переход из Главного меню внутрь «Панели состояния ТСД»
     document.getElementById('card-status-trigger').addEventListener('click', () => {
         mainMenu.style.display = 'none';
         dashboard.style.display = 'block';
     });
 
-    // Возврат из панели мониторинга обратно в Главное меню
     document.getElementById('backToMenuBtn').addEventListener('click', () => {
         dashboard.style.display = 'none';
         mainMenu.style.display = 'flex';
     });
 
-    // Обработка кнопки "Войти"
     document.getElementById('loginBtn').addEventListener('click', () => {
         const email = document.getElementById('loginEmail').value.trim();
         const password = document.getElementById('loginPassword').value;
@@ -278,7 +274,6 @@
             });
     });
 
-    // Обработка кнопки "Выйти"
     document.getElementById('logoutBtn').addEventListener('click', () => {
         signOut(auth).catch((error) => console.error("Ошибка выхода:", error));
     });
@@ -334,7 +329,7 @@
         }
     });
 
-    // --- ЖУРНАЛ ИСТОРИИ ---
+    // --- ЖУРНАЛ ИСТОРИИ (ОБНОВЛЕННАЯ ЛОГИКА ФИЛЬТРАЦИИ) ---
     let fullHistory = {}; 
     const historyRef = ref(database, 'history');
 
@@ -361,13 +356,39 @@
                 <tbody>
         `;
 
-        const keys = Object.keys(fullHistory).reverse();
+        // Получаем ключи и оставляем их в хронологическом порядке (от старых к новым)
+        // Это необходимо для правильного отслеживания предыдущего статуса каждого терминала
+        const keys = Object.keys(fullHistory);
         let hasRecords = false;
 
-        for (let key of keys) {
+        let lastSeenStatusForTsd = {}; 
+        let filteredItems = [];
+        
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
             const item = fullHistory[key];
             
             if (!item.tsd || !item.status || !item.time) continue;
+            
+            let currentStatus = item.status.trim();
+            let tsdId = item.tsd;
+
+            // ЕСЛИ статус содержит "в работе" И предыдущий статус для этого же ТСД ТОЖЕ содержал "в работе" -> пропускаем дубль
+            if (currentStatus.includes("в работе") && lastSeenStatusForTsd[tsdId] && lastSeenStatusForTsd[tsdId].includes("в работе")) {
+                continue; 
+            }
+
+            // Запоминаем текущий статус как последний проверенный для этого ТСД
+            lastSeenStatusForTsd[tsdId] = currentStatus;
+            
+            // Добавляем запись в массив на вывод
+            filteredItems.push(item);
+        }
+
+        // Теперь переворачиваем отфильтрованный массив, чтобы самые свежие события оказались сверху таблицы
+        filteredItems.reverse();
+
+        for (let item of filteredItems) {
             if (filterValue && !item.tsd.toLowerCase().includes(filterValue)) continue;
 
             hasRecords = true;
