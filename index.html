@@ -241,6 +241,7 @@
     onAuthStateChanged(auth, (user) => {
         if (user) {
             authScreen.style.display = 'none';
+            // После входа сначала показываем Главное Меню
             mainMenu.style.display = 'flex';
             dashboard.style.display = 'none';
         } else {
@@ -250,16 +251,19 @@
         }
     });
 
+    // Переход из Главного меню внутрь «Панели состояния ТСД»
     document.getElementById('card-status-trigger').addEventListener('click', () => {
         mainMenu.style.display = 'none';
         dashboard.style.display = 'block';
     });
 
+    // Возврат из панели мониторинга обратно в Главное меню
     document.getElementById('backToMenuBtn').addEventListener('click', () => {
         dashboard.style.display = 'none';
         mainMenu.style.display = 'flex';
     });
 
+    // Обработка кнопки "Войти"
     document.getElementById('loginBtn').addEventListener('click', () => {
         const email = document.getElementById('loginEmail').value.trim();
         const password = document.getElementById('loginPassword').value;
@@ -274,6 +278,7 @@
             });
     });
 
+    // Обработка кнопки "Выйти"
     document.getElementById('logoutBtn').addEventListener('click', () => {
         signOut(auth).catch((error) => console.error("Ошибка выхода:", error));
     });
@@ -329,7 +334,7 @@
         }
     });
 
-    // --- ЖУРНАЛ ИСТОРИИ (ОБНОВЛЕННАЯ ЛОГИКА ФИЛЬТРАЦИИ) ---
+    // --- ЖУРНАЛ ИСТОРИИ ---
     let fullHistory = {}; 
     const historyRef = ref(database, 'history');
 
@@ -356,39 +361,13 @@
                 <tbody>
         `;
 
-        // Получаем ключи и оставляем их в хронологическом порядке (от старых к новым)
-        // Это необходимо для правильного отслеживания предыдущего статуса каждого терминала
-        const keys = Object.keys(fullHistory);
+        const keys = Object.keys(fullHistory).reverse();
         let hasRecords = false;
 
-        let lastSeenStatusForTsd = {}; 
-        let filteredItems = [];
-        
-        for (let i = 0; i < keys.length; i++) {
-            const key = keys[i];
+        for (let key of keys) {
             const item = fullHistory[key];
             
             if (!item.tsd || !item.status || !item.time) continue;
-            
-            let currentStatus = item.status.trim();
-            let tsdId = item.tsd;
-
-            // ЕСЛИ статус содержит "в работе" И предыдущий статус для этого же ТСД ТОЖЕ содержал "в работе" -> пропускаем дубль
-            if (currentStatus.includes("в работе") && lastSeenStatusForTsd[tsdId] && lastSeenStatusForTsd[tsdId].includes("в работе")) {
-                continue; 
-            }
-
-            // Запоминаем текущий статус как последний проверенный для этого ТСД
-            lastSeenStatusForTsd[tsdId] = currentStatus;
-            
-            // Добавляем запись в массив на вывод
-            filteredItems.push(item);
-        }
-
-        // Теперь переворачиваем отфильтрованный массив, чтобы самые свежие события оказались сверху таблицы
-        filteredItems.reverse();
-
-        for (let item of filteredItems) {
             if (filterValue && !item.tsd.toLowerCase().includes(filterValue)) continue;
 
             hasRecords = true;
