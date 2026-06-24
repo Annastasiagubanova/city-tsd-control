@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Геолокация ТСД</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
+    
+    <style>
+        /* Стили для табов (вкладок) */
+        .tabs-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab-btn {
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: bold;
+            border: 2px solid #cbd5e1;
+            background-color: white;
+            color: #64748b;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            background-color: #007bff;
+            border-color: #007bff;
+            color: white;
+        }
+        /* Стили для таблицы */
+        .tsd-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .tsd-table th {
+            background-color: #f8fafc;
+            color: #64748b;
+            text-align: left;
+            padding: 14px 16px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .tsd-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #334155;
+            font-size: 15px;
+        }
+        .tsd-link {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .tsd-link:hover {
+            text-decoration: underline;
+        }
+        .distance-badge {
+            font-weight: 500;
+            color: #334155;
+        }
+        .distance-far {
+            color: #dc3545; /* Красный цвет, если ТСД уехал далеко */
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="dashboard" class="dashboard" style="display: none; padding: 20px;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <button id="backToMenuBtn" class="back-btn">⬅️ На главную</button>
+                <h1 style="margin: 0; font-size: 24px;">Геолокация ТСД</h1>
+            </div>
+            <button id="logoutBtn" style="padding: 8px 15px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Выйти</button>
+        </div>
+
+        <div class="tabs-container">
+            <button id="tabListBtn" class="tab-btn active">📋 Список</button>
+            <button id="tabMapBtn" class="tab-btn">🗺️ Карта</button>
+        </div>
+
+        <div id="view-list">
+            <table class="tsd-table">
+                <thead>
+                    <tr>
+                        <th>Название ТСД</th>
+                        <th>Отдаленность</th>
+                    </tr>
+                </thead>
+                <tbody id="tsd-geo-rows">
+                    <tr>
+                        <td colspan="2" style="text-align: center; color: #94a3b8;">Загрузка данных геолокации...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="view-map" style="display: none; width: 100%; height: 600px; margin-top: 10px;">
+            <div id="map" style="width: 100%; height: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></div>
+        </div>
+    </div>
+
+    <div id="staff-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.4); display: none; justify-content: center; align-items: center; z-index: 10000; font-family: sans-serif;">
+        <div style="background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); width: 340px; box-sizing: border-box;">
+            <h3 id="modal-title" style="margin-top: 0; color: #1e293b; font-size: 18px; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px;">
+                Закрепленные сотрудники
+            </h3>
+            <ul id="modal-staff-list" style="list-style-type: none; padding: 0; margin: 20px 0; font-size: 16px; color: #334155; line-height: 2;"></ul>
+            <button id="closeModalBtn" style="width: 100%; padding: 12px; background-color: #64748b; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s;">
+                Закрыть
+            </button>
+        </div>
+    </div>
+``
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyCOpoWOygfpw0f9FJzWIEaqmhbUCS-RmEU",
+            authDomain: "city-tsd-control.firebaseapp.com",
+            databaseURL: "https://city-tsd-control-default-rtdb.europe-west1.firebasedatabase.app/",
+            projectId: "city-tsd-control",
+            storageBucket: "city-tsd-control.firebasestorage.app",
+            messagingSenderId: "1086724572042",
+            appId: "1:1086724572042:web:4a19851bcb25d45381be73"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+        const auth = getAuth(app);
+
+        // 📍 Координаты производства
+        const FACTORY_LAT = 44.365542;
+        const FACTORY_LNG = 41.512048;
+
+        let map;
+        let isYmapsReady = false; 
+        const markers = {};       // Здесь будут храниться активные метки устройств Яндекс Карт
+        const cachedTsdData = {}; // Временный кэш данных, если Firebase ответит раньше загрузки карты
+
+        const tsdStaffMap = {
+            "TSD_00": ["Губанова А.А."],
+            "TSD_01": ["Назаретян Аза", "Бычкова Ольга"],
+            "TSD_02": ["Асланян Люсье", "Цыкорина Оксана"],
+            "TSD_03": ["Восканян Айрапет", "Кондян Паруйр"],
+            "TSD_04": ["Абдулхамидова Мамлакатхон Тахирджоновна", "Татаров Феликс"],
+            "TSD_05": ["Дегтярева Светлана", "Иващенко Андрей"],
+            "TSD_06": ["Власенко Андрей", "Хаустова Людмила"],
+            "TSD_07": ["Кашанян Естер", "Лабунцова Светлана"],
+            "TSD_08": ["Сазонкин Алексей", "Апонасенко Наталья"],
+            "TSD_10": ["Ахмедов Дилшод", "Павличенко Жанна"],
+            "TSD_11": ["Михайлова Оксана", "Гунина Наталья"],
+            "TSD_12": ["Шандрамайлова Светлана", "Шаповалов Евгений"],
+            "TSD_13": ["Сулейманян Арташ", "Мурадян Нарек"],
+        };
+
+        // Формула расчета расстояния по координатам (в метрах)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c; 
+        }
+
+        // Красивый вывод текста отдаленности
+        function formatDistance(meters) {
+            if (meters < 150) {
+                return `<span class="distance-badge" style="color: #28a745; font-weight: bold;">📍 На производстве (< 150 м)</span>`;
+            } else if (meters >= 1000) {
+                const km = (meters / 1000).toFixed(1);
+                return `<span class="distance-badge distance-far">> ${km} км</span>`;
+            } else {
+                return `<span class="distance-badge">> ${Math.round(meters)} м</span>`;
+            }
+        }
+
+        // Проверка авторизации
+        onAuthStateChanged(auth, (user) => {
+            if (!user) {
+                window.location.href = 'index.html';
+            } else {
+                document.getElementById('dashboard').style.display = 'block';
+                startGeoTracking();
+            }
+        });
+
+        // Отслеживание данных Firebase в реальном времени
+        function startGeoTracking() {
+            const terminalsRef = ref(database, 'terminals');
+            
+            onValue(terminalsRef, (snapshot) => {
+                const data = snapshot.val();
+                const tbody = document.getElementById('tsd-geo-rows');
+                tbody.innerHTML = ''; 
+
+                if (!data) {
+                    tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: #94a3b8;">Устройства не найдены</td></tr>';
+                    return;
+                }
+
+                for (let id in data) {
+                    const tsd = data[id];
+                    
+                    if (tsd.lat && tsd.lng) {
+                        const lat = parseFloat(tsd.lat);
+                        const lng = parseFloat(tsd.lng);
+                        
+                        // 1. Считаем расстояние и обновляем Таблицу
+                        const distanceInMetres = calculateDistance(FACTORY_LAT, FACTORY_LNG, lat, lng);
+                        const distanceHTML = formatDistance(distanceInMetres);
+
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td><span class="tsd-link" onclick="window.openStaff('${id}')">${id}</span></td>
+                            <td>${distanceHTML}</td>
+                        `;
+                        tbody.appendChild(row);
+
+                        // Подготовка HTML-контента для всплывающего окна (балуна) на карте
+                        const batteryText = tsd.battery ? `<br>🔋 Заряд: ${tsd.battery}%` : '';
+                        const timeText = tsd.lastUpdate ? `<br>🕒 Сеть: ${tsd.lastUpdate}` : '';
+                        const popupContent = `
+                            <div style="font-family: sans-serif; line-height: 1.4; font-size:13px; color:#333;">
+                                <strong>Устройство: ${id}</strong>
+                                ${batteryText}
+                                ${timeText}
+                                <br><button onclick="window.openStaff('${id}')" style="margin-top:8px; padding:4px 8px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">👤 Сотрудники</button>
+                            </div>
+                        `;
+
+                        // 2. Логика для Яндекс Карт
+                        if (isYmapsReady) {
+                            if (markers[id]) {
+                                // Если метка уже есть — плавно меняем координаты и текст
+                                markers[id].geometry.setCoordinates([lat, lng]);
+                                markers[id].properties.set('balloonContent', popupContent);
+                            } else {
+                                // Создаем новую метку ТСД
+                                markers[id] = new ymaps.Placemark([lat, lng], {
+                                    balloonContent: popupContent,
+                                    hintContent: id
+                                }, {
+                                    preset: 'islands#blueCircleDotIcon'
+                                });
+                                map.geoObjects.add(markers[id]);
+                            }
+                        } else {
+                            // Если Яндекс еще не инициализировался, сохраняем координаты в кэш
+                            cachedTsdData[id] = { lat, lng, battery: tsd.battery, lastUpdate: tsd.lastUpdate };
+                        }
+                    }
+                }
+
+                if (tbody.children.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: #94a3b8;">Устройства не передают геопозицию</td></tr>';
+                }
+            });
+        }
+
+        // ИНИЦИАЛИЗАЦИЯ ЯНДЕКС КАРТЫ
+        function initMap() {
+            if (map) return; // Защита от дублирования
+            
+            ymaps.ready(() => {
+                // Создаем карту
+                map = new ymaps.Map("map", {
+                    center: [FACTORY_LAT, FACTORY_LNG],
+                    zoom: 14,
+                    controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
+                });
+
+                // Создаем и добавляем специальный маркер Нашего Производства
+                const factoryPlacemark = new ymaps.Placemark([FACTORY_LAT, FACTORY_LNG], {
+                    balloonContent: '<b>🏭 Наше Производство</b>',
+                    hintContent: 'Производство'
+                }, {
+                    preset: 'islands#redFactoryIcon' // Красивая встроенная иконка фабрики
+                });
+                map.geoObjects.add(factoryPlacemark);
+
+                isYmapsReady = true;
+
+                // Извлекаем накопленные из Firebase устройства и выводим их маркеры на карту
+                for (let id in cachedTsdData) {
+                    const tsd = cachedTsdData[id];
+                    const batteryText = tsd.battery ? `<br>🔋 Заряд: ${tsd.battery}%` : '';
+                    const timeText = tsd.lastUpdate ? `<br>🕒 Сеть: ${tsd.lastUpdate}` : '';
+                    const popupContent = `
+                        <div style="font-family: sans-serif; line-height: 1.4; font-size:13px;">
+                            <strong>Устройство: ${id}</strong>
+                            ${batteryText}
+                            ${timeText}
+                            <br><button onclick="window.openStaff('${id}')" style="margin-top:8px; padding:4px 8px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">👤 Сотрудники</button>
+                        </div>
+                    `;
+
+                    markers[id] = new ymaps.Placemark([tsd.lat, tsd.lng], {
+                        balloonContent: popupContent,
+                        hintContent: id
+                    }, {
+                        preset: 'islands#blueCircleDotIcon'
+                    });
+                    map.geoObjects.add(markers[id]);
+                }
+            });
+        }
+
+        // ЛОГИКА ТАБОВ
+        const tabListBtn = document.getElementById('tabListBtn');
+        const tabMapBtn = document.getElementById('tabMapBtn');
+        const viewList = document.getElementById('view-list');
+        const viewMap = document.getElementById('view-map');
+
+        tabListBtn.addEventListener('click', () => {
+            tabListBtn.classList.add('active');
+            tabMapBtn.classList.remove('active');
+            viewList.style.display = 'block';
+            viewMap.style.display = 'none';
+        });
+
+        tabMapBtn.addEventListener('click', () => {
+            tabMapBtn.classList.add('active');
+            tabListBtn.classList.remove('active');
+            viewList.style.display = 'none';
+            viewMap.style.display = 'block';
+            
+            initMap();
+            // Подгоняем размер Яндекс Карты под контейнер, чтобы избежать серой зоны
+            setTimeout(() => { if(map) map.container.fitToViewport(); }, 150);
+        });
+
+        // Модальное окно сотрудников
+        window.openStaff = function(tsdId) {
+            const modal = document.getElementById('staff-modal');
+            const title = document.getElementById('modal-title');
+            const listContainer = document.getElementById('modal-staff-list');
+            
+            title.innerHTML = `📍 Рабочая смена для <span style="color:#007bff">${tsdId}</span>`;
+            listContainer.innerHTML = '';
+            
+            const staffArray = tsdStaffMap[tsdId];
+            if (staffArray && staffArray.length > 0) {
+                staffArray.forEach(worker => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `• ${worker}`;
+                    listContainer.appendChild(li);
+                });
+            } else {
+                listContainer.innerHTML = '<li style="color: #94a3b8; font-style: italic;">Сотрудники не закреплены</li>';
+            }
+            modal.style.display = 'flex';
+        };
+
+        document.getElementById('closeModalBtn').addEventListener('click', () => {
+            document.getElementById('staff-modal').style.display = 'none';
+        });
+
+        window.addEventListener('click', (e) => {
+            if (e.target === document.getElementById('staff-modal')) {
+                document.getElementById('staff-modal').style.display = 'none';
+            }
+        });
+
+        document.getElementById('backToMenuBtn').addEventListener('click', () => {
+            window.location.href = 'index.html';
+        });
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            signOut(auth).catch((error) => console.error("Ошибка выхода:", error));
+        });
+    </script>
+</body>
+</html>
