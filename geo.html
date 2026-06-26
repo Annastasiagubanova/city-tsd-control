@@ -106,7 +106,7 @@
                     </tr>
                 </tbody>
             </table>
-        </div>
+        </div>     
 
         <div id="view-map" style="display: none; width: 100%; height: 600px; margin-top: 10px;">
             <div id="map" style="width: 100%; height: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></div>
@@ -124,7 +124,7 @@
             </button>
         </div>
     </div>
-``
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
@@ -144,14 +144,17 @@
         const database = getDatabase(app);
         const auth = getAuth(app);
 
-        // 📍 Координаты производства
-        const FACTORY_LAT = 44.365542;
-        const FACTORY_LNG = 41.512048;
+        // 📍 Фиксированные точные координаты производства
+        const FACTORY_LAT = 44.365563;
+        const FACTORY_LNG = 41.511994;
 
         let map;
         let isYmapsReady = false; 
-        const markers = {};       // Здесь будут храниться активные метки устройств Яндекс Карт
-        const cachedTsdData = {}; // Временный кэш данных, если Firebase ответит раньше загрузки карты
+        const markers = {};       
+        const cachedTsdData = {}; 
+        
+        // Объект, в котором мы будем объединять данные из веток 'terminals' и 'geo'
+        const combinedDevices = {};
 
         const tsdStaffMap = {
             "TSD_00": ["Губанова А.А."],
@@ -169,7 +172,6 @@
             "TSD_13": ["Сулейманян Арташ", "Мурадян Нарек"],
         };
 
-        // Формула расчета расстояния по координатам (в метрах)
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371000;
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -181,7 +183,6 @@
             return R * c; 
         }
 
-        // Красивый вывод текста отдаленности
         function formatDistance(meters) {
             if (meters < 150) {
                 return `<span class="distance-badge" style="color: #28a745; font-weight: bold;">📍 На производстве (< 150 м)</span>`;
@@ -193,7 +194,6 @@
             }
         }
 
-        // Проверка авторизации
         onAuthStateChanged(auth, (user) => {
             if (!user) {
                 window.location.href = 'index.html';
@@ -203,103 +203,121 @@
             }
         });
 
-        // Отслеживание данных Firebase в реальном времени
+        // СЛУШАЕМ ОБЕ ВЕТКИ ОДНОВРЕМЕННО
         function startGeoTracking() {
             const terminalsRef = ref(database, 'terminals');
+            const geoRef = ref(database, 'geo');
             
+            // 1. Слушаем параметры (батарея, статус)
             onValue(terminalsRef, (snapshot) => {
-                const data = snapshot.val();
-                const tbody = document.getElementById('tsd-geo-rows');
-                tbody.innerHTML = ''; 
-
-                if (!data) {
-                    tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: #94a3b8;">Устройства не найдены</td></tr>';
-                    return;
-                }
-
+                const data = snapshot.val() || {};
                 for (let id in data) {
-                    const tsd = data[id];
+                    if (!combinedDevices[id]) combinedDevices[id] = {};
+                    combinedDevices[id].battery = data[id].battery;
+                    combinedDevices[id].status = data[id].status;
+                    combinedDevices[id].lastUpdate = data[id].lastUpdate;
+                }
+                renderDevicesUI();
+            });
+
+            // 2. Слушаем координаты из новой вкладки 'geo'
+            onValue(geoRef, (snapshot) => {
+                const data = snapshot.val() || {};
+                for (let id in data) {
+                    if (!combinedDevices[id]) combinedDevices[id] = {};
+                    combinedDevices[id].lat = data[id].lat;
+                    combinedDevices[id].lng = data[id].lng;
+                }
+                renderDevicesUI();
+            });
+        }
+
+        // ОТРИСОВКА ИНТЕРФЕЙСА И КАРТЫ
+        function renderDevicesUI() {
+            const tbody = document.getElementById('tsd-geo-rows');
+            if (!tbody) return;
+            tbody.innerHTML = ''; 
+
+            let hasValidDevices = false;
+
+            for (let id in combinedDevices) {
+                const tsd = combinedDevices[id];
+                
+                // Проверяем, появились ли у нас координаты для этого ID
+                if (tsd.lat && tsd.lng) {
+                    hasValidDevices = true;
+                    const lat = parseFloat(tsd.lat);
+                    const lng = parseFloat(tsd.lng);
                     
-                    if (tsd.lat && tsd.lng) {
-                        const lat = parseFloat(tsd.lat);
-                        const lng = parseFloat(tsd.lng);
-                        
-                        // 1. Считаем расстояние и обновляем Таблицу
-                        const distanceInMetres = calculateDistance(FACTORY_LAT, FACTORY_LNG, lat, lng);
-                        const distanceHTML = formatDistance(distanceInMetres);
+                    const distanceInMetres = calculateDistance(FACTORY_LAT, FACTORY_LNG, lat, lng);
+                    const distanceHTML = formatDistance(distanceInMetres);
 
-                        const row = document.createElement('tr');
-                        row.innerHTML = `
-                            <td><span class="tsd-link" onclick="window.openStaff('${id}')">${id}</span></td>
-                            <td>${distanceHTML}</td>
-                        `;
-                        tbody.appendChild(row);
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td><span class="tsd-link" onclick="window.openStaff('${id}')">${id}</span></td>
+                        <td>${distanceHTML}</td>
+                    `;
+                    tbody.appendChild(row);
 
-                        // Подготовка HTML-контента для всплывающего окна (балуна) на карте
-                        const batteryText = tsd.battery ? `<br>🔋 Заряд: ${tsd.battery}%` : '';
-                        const timeText = tsd.lastUpdate ? `<br>🕒 Сеть: ${tsd.lastUpdate}` : '';
-                        const popupContent = `
-                            <div style="font-family: sans-serif; line-height: 1.4; font-size:13px; color:#333;">
-                                <strong>Устройство: ${id}</strong>
-                                ${batteryText}
-                                ${timeText}
-                                <br><button onclick="window.openStaff('${id}')" style="margin-top:8px; padding:4px 8px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">👤 Сотрудники</button>
-                            </div>
-                        `;
+                    // Балун для карты
+                    const batteryText = tsd.battery ? `<br>🔋 Заряд: ${tsd.battery}%` : '';
+                    const timeText = tsd.lastUpdate ? `<br>🕒 Сеть: ${tsd.lastUpdate}` : '';
+                    const popupContent = `
+                        <div style="font-family: sans-serif; line-height: 1.4; font-size:13px; color:#333;">
+                            <strong>Устройство: ${id}</strong>
+                            ${batteryText}
+                            ${timeText}
+                            <br><button onclick="window.openStaff('${id}')" style="margin-top:8px; padding:4px 8px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">👤 Сотрудники</button>
+                        </div>
+                    `;
 
-                        // 2. Логика для Яндекс Карт
-                        if (isYmapsReady) {
-                            if (markers[id]) {
-                                // Если метка уже есть — плавно меняем координаты и текст
-                                markers[id].geometry.setCoordinates([lat, lng]);
-                                markers[id].properties.set('balloonContent', popupContent);
-                            } else {
-                                // Создаем новую метку ТСД
-                                markers[id] = new ymaps.Placemark([lat, lng], {
-                                    balloonContent: popupContent,
-                                    hintContent: id
-                                }, {
-                                    preset: 'islands#blueCircleDotIcon'
-                                });
-                                map.geoObjects.add(markers[id]);
-                            }
+                    if (isYmapsReady) {
+                        if (markers[id]) {
+                            markers[id].geometry.setCoordinates([lat, lng]);
+                            markers[id].properties.set('balloonContent', popupContent);
                         } else {
-                            // Если Яндекс еще не инициализировался, сохраняем координаты в кэш
-                            cachedTsdData[id] = { lat, lng, battery: tsd.battery, lastUpdate: tsd.lastUpdate };
+                            markers[id] = new ymaps.Placemark([lat, lng], {
+                                balloonContent: popupContent,
+                                hintContent: id
+                            }, {
+                                preset: 'islands#blueCircleDotIcon'
+                            });
+                            map.geoObjects.add(markers[id]);
                         }
+                    } else {
+                        cachedTsdData[id] = { lat, lng, battery: tsd.battery, lastUpdate: tsd.lastUpdate };
                     }
                 }
+            }
 
-                if (tbody.children.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: #94a3b8;">Устройства не передают геопозицию</td></tr>';
-                }
-            });
+            if (!hasValidDevices) {
+                tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: #94a3b8;">Устройства не передают геопозицию</td></tr>';
+            }
         }
 
         // ИНИЦИАЛИЗАЦИЯ ЯНДЕКС КАРТЫ
         function initMap() {
-            if (map) return; // Защита от дублирования
+            if (map) return; 
             
             ymaps.ready(() => {
-                // Создаем карту
                 map = new ymaps.Map("map", {
                     center: [FACTORY_LAT, FACTORY_LNG],
                     zoom: 14,
                     controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
                 });
 
-                // Создаем и добавляем специальный маркер Нашего Производства
+                // Метка Нашего Производства
                 const factoryPlacemark = new ymaps.Placemark([FACTORY_LAT, FACTORY_LNG], {
                     balloonContent: '<b>🏭 Наше Производство</b>',
                     hintContent: 'Производство'
                 }, {
-                    preset: 'islands#redFactoryIcon' // Красивая встроенная иконка фабрики
+                    preset: 'islands#redFactoryIcon'
                 });
                 map.geoObjects.add(factoryPlacemark);
 
                 isYmapsReady = true;
 
-                // Извлекаем накопленные из Firebase устройства и выводим их маркеры на карту
+                // Отрисовка из кэша
                 for (let id in cachedTsdData) {
                     const tsd = cachedTsdData[id];
                     const batteryText = tsd.battery ? `<br>🔋 Заряд: ${tsd.battery}%` : '';
@@ -344,7 +362,6 @@
             viewMap.style.display = 'block';
             
             initMap();
-            // Подгоняем размер Яндекс Карты под контейнер, чтобы избежать серой зоны
             setTimeout(() => { if(map) map.container.fitToViewport(); }, 150);
         });
 
